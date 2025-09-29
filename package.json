@@ -18,21 +18,15 @@
     "devDependencies": {
         "@eslint/eslintrc": "^3.3.1",
         "@eslint/js": "^9.36.0",
-        "@types/chai": "^5.2.2",
-        "@types/mocha": "^10.0.10",
         "@types/node": "^20.19.17",
         "@typescript-eslint/eslint-plugin": "^8.44.1",
         "@typescript-eslint/parser": "^8.44.1",
-        "chai": "^5.3.3",
         "eslint": "^9.36.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-config-typescript": "^3.0.0",
         "eslint-plugin-prettier": "^5.5.4",
         "globals": "^16.4.0",
-        "mocha": "^11.7.2",
-        "nock": "^14.0.10",
         "prettier": "3.5.3",
-        "tsx": "^4.20.6",
         "turbo": "^2.5.8",
         "typescript": "^5.9.2"
     },
@@ -43,8 +37,6 @@
         "build": "turbo run build",
         "docker:up": "cd apps/docker && docker-compose -f docker-compose.dev.yml up --build",
         "docker:down": "cd apps/docker && docker-compose -f docker-compose.dev.yml down",
-        "test": "mocha --require tsx tests/unit/*.ts",
-        "test-integration": "mocha --require tsx tests/integration/*.ts",
         "fmt": "prettier . --write",
         "lint": "eslint --ext .ts --ext .js --ext .json ."
     }

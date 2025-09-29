@@ -4,6 +4,7 @@ services:
         build:
             context: ../../
             dockerfile: apps/docker/Dockerfile
+            target: dev-base
         ports:
             - '3000:3000' # Frontend web app
             - '3001:3001' # Backend API
@@ -11,8 +12,9 @@ services:
             - ../../:/app
             - /app/node_modules
             - /app/apps/(frontend)/node_modules
-            - /app/apps/(backend)/node_modules
+            - /app/apps/(backend)/bin
         environment:
             - NODE_ENV=development
+            - DOWNLOADS_DIR=/app/apps/(backend)/public/downloads
         command: pnpm run dev
         restart: unless-stopped
