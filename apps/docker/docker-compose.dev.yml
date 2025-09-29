@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+    video-converter-app:
+        build:
+            context: ../../
+            dockerfile: apps/docker/Dockerfile
+        ports:
+            - '3000:3000' # Frontend web app
+            - '3001:3001' # Backend API
+        volumes:
+            - ../../:/app
+            - /app/node_modules
+            - /app/apps/(frontend)/node_modules
+            - /app/apps/(backend)/node_modules
+        environment:
+            - NODE_ENV=development
+        command: pnpm run dev
+        restart: unless-stopped

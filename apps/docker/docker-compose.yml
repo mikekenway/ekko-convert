@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  video-converter:
+    build: 
+      context: ../converter
+      dockerfile: ../docker/Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./downloads:/app/downloads
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped

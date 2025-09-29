@@ -1,0 +1,38 @@
+.DS_Store
+.idea
+node_modules/
+**/node_modules/
+**/downloads/**
+package-lock.json
+built/
+
+
+apps/(backend)/public/downloads
+
+
+# Build outputs
+dist/
+build/
+.output/
+
+# Turbo cache
+.turbo/
+
+# Environment variables
+**/.env
+**/.env.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Docker
+.dockerignore
