@@ -346,8 +346,8 @@ func (s *serverState) handleConvert(w http.ResponseWriter, r *http.Request) {
 			if len(parts) != 2 {
 				continue
 			}
-			key := parts[0]
-			value := parts[1]
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
 
 			switch key {
 			case "frame":
@@ -357,7 +357,19 @@ func (s *serverState) handleConvert(w http.ResponseWriter, r *http.Request) {
 					s.emitProgress(originalName, currentProgress, outputName, false)
 				}
 			case "out_time_ms":
-				currentProgress := progressFromTimemark(value, durationSeconds)
+				currentProgress := progressFromTimestamp(value, durationSeconds, 1000)
+				if shouldEmitProgress(currentProgress, lastReported) {
+					lastReported = currentProgress
+					s.emitProgress(originalName, currentProgress, outputName, false)
+				}
+			case "out_time_us":
+				currentProgress := progressFromTimestamp(value, durationSeconds, 1000000)
+				if shouldEmitProgress(currentProgress, lastReported) {
+					lastReported = currentProgress
+					s.emitProgress(originalName, currentProgress, outputName, false)
+				}
+			case "out_time":
+				currentProgress := progressFromTimecode(value, durationSeconds)
 				if shouldEmitProgress(currentProgress, lastReported) {
 					lastReported = currentProgress
 					s.emitProgress(originalName, currentProgress, outputName, false)
@@ -550,15 +562,27 @@ func probeFile(path string) (*ffprobeData, error) {
 	return &data, nil
 }
 
-func progressFromTimemark(outTimeMs string, durationSeconds float64) int {
-	if durationSeconds <= 0 {
+func progressFromTimestamp(value string, durationSeconds float64, unitsPerSecond float64) int {
+	if durationSeconds <= 0 || unitsPerSecond <= 0 {
 		return 0
 	}
-	ms, err := strconv.ParseFloat(outTimeMs, 64)
+	raw, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0
 	}
-	seconds := ms / 1000000.0
+	seconds := raw / unitsPerSecond
+	percent := int(math.Round((seconds / durationSeconds) * 100))
+	return clamp(percent, 0, 100)
+}
+
+func progressFromTimecode(value string, durationSeconds float64) int {
+	if durationSeconds <= 0 {
+		return 0
+	}
+	seconds := parseDurationSeconds(value)
+	if seconds <= 0 {
+		return 0
+	}
 	percent := int(math.Round((seconds / durationSeconds) * 100))
 	return clamp(percent, 0, 100)
 }
