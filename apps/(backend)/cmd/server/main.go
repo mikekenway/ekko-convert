@@ -26,17 +26,22 @@ const (
 	progressBroadcastStep       = 5                       // emit every 5%
 )
 
+type ffprobeStream struct {
+	CodecName    string `json:"codec_name"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	Duration     string `json:"duration"`
+	NbFrames     string `json:"nb_frames"`
+	AvgFrameRate string `json:"avg_frame_rate"`
+}
+
 type ffprobeData struct {
 	Format struct {
 		Duration string `json:"duration"`
 		Size     string `json:"size"`
 		BitRate  string `json:"bit_rate"`
 	} `json:"format"`
-	Streams []struct {
-		CodecName string `json:"codec_name"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-	} `json:"streams"`
+	Streams []ffprobeStream `json:"streams"`
 }
 
 type conversionProcess struct {
@@ -286,6 +291,14 @@ func (s *serverState) handleConvert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	durationSeconds := parseDurationSeconds(metadata.Format.Duration)
+	primaryStream := firstVideoStream(metadata.Streams)
+	if durationSeconds <= 0 && primaryStream != nil {
+		durationSeconds = parseDurationSeconds(primaryStream.Duration)
+		if durationSeconds <= 0 {
+			durationSeconds = durationFromFrames(primaryStream.NbFrames, primaryStream.AvgFrameRate)
+		}
+	}
+	totalFrames := parseFrameCount(primaryStream)
 
 	log.Printf("Starting conversion of %s (%fs) to %s", originalName, durationSeconds, format)
 
@@ -325,6 +338,7 @@ func (s *serverState) handleConvert(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(progressDone)
 		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 0, 1024), 1024*1024)
 		lastReported := -progressBroadcastStep
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -336,9 +350,15 @@ func (s *serverState) handleConvert(w http.ResponseWriter, r *http.Request) {
 			value := parts[1]
 
 			switch key {
+			case "frame":
+				currentProgress := progressFromFrame(value, totalFrames)
+				if shouldEmitProgress(currentProgress, lastReported) {
+					lastReported = currentProgress
+					s.emitProgress(originalName, currentProgress, outputName, false)
+				}
 			case "out_time_ms":
 				currentProgress := progressFromTimemark(value, durationSeconds)
-				if currentProgress >= lastReported+progressBroadcastStep || currentProgress >= 100 {
+				if shouldEmitProgress(currentProgress, lastReported) {
 					lastReported = currentProgress
 					s.emitProgress(originalName, currentProgress, outputName, false)
 				}
@@ -458,6 +478,7 @@ func (s *serverState) emitProgress(fileName string, progress int, outputName str
 		OutputName: outputName,
 		Completed:  completed,
 	}
+	log.Printf("Progress update for %s: %d%%", fileName, payload.Progress)
 	s.socket.BroadcastToNamespace("/", "conversion-progress", payload)
 }
 
@@ -542,26 +563,123 @@ func progressFromTimemark(outTimeMs string, durationSeconds float64) int {
 	return clamp(percent, 0, 100)
 }
 
+func progressFromFrame(frameValue string, totalFrames float64) int {
+	if totalFrames <= 0 {
+		return 0
+	}
+	currentFrame, err := strconv.ParseFloat(frameValue, 64)
+	if err != nil {
+		return 0
+	}
+	percent := int(math.Round((currentFrame / totalFrames) * 100))
+	return clamp(percent, 0, 100)
+}
+
 func parseDurationSeconds(raw string) float64 {
+	if raw == "" {
+		return 0
+	}
 	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
+		if strings.Contains(raw, ":") {
+			return parseColonDuration(raw)
+		}
 		return 0
 	}
 	return value
 }
 
-func firstVideoStream(streams []struct {
-	CodecName string `json:"codec_name"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-}) *struct {
-	CodecName string `json:"codec_name"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-} {
-	for i, stream := range streams {
+func parseColonDuration(raw string) float64 {
+	parts := strings.Split(raw, ":")
+	if len(parts) != 3 {
+		return 0
+	}
+	hours, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return 0
+	}
+	minutes, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return 0
+	}
+	seconds, err := strconv.ParseFloat(parts[2], 64)
+	if err != nil {
+		return 0
+	}
+	return hours*3600 + minutes*60 + seconds
+}
+
+func parseFrameCount(stream *ffprobeStream) float64 {
+	if stream == nil {
+		return 0
+	}
+	if frames, err := strconv.ParseFloat(stream.NbFrames, 64); err == nil && frames > 0 {
+		return frames
+	}
+	rate := parseFraction(stream.AvgFrameRate)
+	if rate <= 0 {
+		return 0
+	}
+	duration := parseDurationSeconds(stream.Duration)
+	if duration <= 0 {
+		return 0
+	}
+	return duration * rate
+}
+
+func durationFromFrames(nbFrames, avgFrameRate string) float64 {
+	frames, err := strconv.ParseFloat(nbFrames, 64)
+	if err != nil || frames <= 0 {
+		return 0
+	}
+	rate := parseFraction(avgFrameRate)
+	if rate <= 0 {
+		return 0
+	}
+	return frames / rate
+}
+
+func parseFraction(raw string) float64 {
+	if raw == "" {
+		return 0
+	}
+	if !strings.Contains(raw, "/") {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return 0
+		}
+		return value
+	}
+	parts := strings.SplitN(raw, "/", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	numerator, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return 0
+	}
+	denominator, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil || denominator == 0 {
+		return 0
+	}
+	return numerator / denominator
+}
+
+func shouldEmitProgress(current, last int) bool {
+	if current <= last {
+		return false
+	}
+	if current >= 100 {
+		return true
+	}
+	return current >= last+progressBroadcastStep
+}
+
+func firstVideoStream(streams []ffprobeStream) *ffprobeStream {
+	for i := range streams {
+		stream := &streams[i]
 		if stream.Width > 0 || stream.Height > 0 {
-			return &streams[i]
+			return stream
 		}
 	}
 	if len(streams) > 0 {
